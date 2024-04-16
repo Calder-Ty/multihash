@@ -1,6 +1,43 @@
 const std = @import("std");
 const testing = std.testing;
 
+/// A representation of the Hash
+pub const Multihash = struct {
+    hash_func: UnsignedVarInt,
+    hash_size: UnsignedVarInt,
+    hash: std.ArrayList(u8),
+
+    /// Decodes the struct to the hash
+    pub fn decode(self: Multihash, allocator: std.mem.Allocator) !std.ArrayList(u8) {
+        const total_size = self.hash_func.minimal_size() + self.hash_size.minimal_size() + self.hash.len();
+        var result = try std.ArrayListAligned(u8).initCapacity(allocator, total_size);
+        const func_bytes = self.hash_func.decode()[0..self.hash_func.minimal_size()];
+        const size_bytes = self.hash_size.decode()[0..self.hash_size.minimal_size()];
+        while (func_bytes) |byte| {
+            result.append(byte);
+        }
+        while (size_bytes) |byte| {
+            result.append(byte);
+        }
+        result.appendSlice(self.hash.items);
+        return result;
+    }
+
+    pub fn encode(bytes: []u9, allocator: std.mem.Allocator) Multihash {
+        var offset = 0;
+        const hash_func = UnsignedVarInt.encode(bytes[offset .. offset + 9]);
+        offset = hash_func.minimal_size();
+        const hash_size = UnsignedVarInt.encode(bytes[offset .. offset + 9]);
+        offset = hash_size.minimal_size();
+        const hash = std.ArrayList(u8).init(allocator);
+        hash.appendSlice(bytes[offset .. offset + hash_size._inner]);
+    }
+
+    pub fn deinit(self: Multihash) void {
+        self.hash.deinit();
+    }
+};
+
 /// Variable Sized Integer. Required for use in the Multihash spec.
 /// Based off of the schema here https://github.com/multiformats/unsigned-varint
 const UnsignedVarInt = struct {
