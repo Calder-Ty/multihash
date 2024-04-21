@@ -1,5 +1,6 @@
 const std = @import("std");
 const testing = std.testing;
+const Endian = std.builtin.Endian;
 
 /// A representation of the Hash
 pub const Multihash = struct {
@@ -27,9 +28,9 @@ pub const Multihash = struct {
     /// to call `deinit`.
     pub fn deserialize(bytes: []const u8, allocator: std.mem.Allocator) !Multihash {
         var offset: usize = 0;
-        const hash_func = try UnsignedVarInt.deserialize(bytes[offset .. offset + 9]);
+        const hash_func = try UnsignedVarInt.deserialize(bytes[offset .. offset + 9], .little);
         offset = hash_func.minimal_size();
-        const hash_size = try UnsignedVarInt.deserialize(bytes[offset .. offset + 9]);
+        const hash_size = try UnsignedVarInt.deserialize(bytes[offset .. offset + 9], .little);
         offset += hash_size.minimal_size();
         var hash = std.ArrayList(u8).init(allocator);
         try hash.appendSlice(bytes[offset .. offset + hash_size._inner]);
@@ -60,7 +61,7 @@ pub const Multihash = struct {
 
 /// Variable Sized Integer. Required for use in the Multihash spec.
 /// Based off of the schema here https://github.com/multiformats/unsigned-varint
-const UnsignedVarInt = struct {
+pub const UnsignedVarInt = struct {
     const CONT_BIT_MASK: u8 = 0b0111_1111;
     // Per the specification, only 7 bits of the value are used
     // to encode the value, the 8th bit is use to flag a  continuation
@@ -71,8 +72,9 @@ const UnsignedVarInt = struct {
     // to encode continuations bits)
     _inner: u63,
 
-    /// Encode Bytes into a UnsinedVarInt
-    pub fn deserialize(bytes: []const u8) !UnsignedVarInt {
+    /// Deserialize bytes into a UnsinedVarInt
+    pub fn deserialize(bytes: []const u8, endian: Endian) !UnsignedVarInt {
+        _ = endian;
         if (bytes.len > 9) {
             return error.TooManyBytes;
         }
@@ -118,27 +120,27 @@ const UnsignedVarInt = struct {
     test "encode" {
         try std.testing.expectEqual(
             @as(u63, 1),
-            (try UnsignedVarInt.deserialize(&[_]u8{0x1}))._inner,
+            (try UnsignedVarInt.deserialize(&[_]u8{0x1}, .little))._inner,
         );
         try std.testing.expectEqual(
             @as(u63, 127),
-            (try UnsignedVarInt.deserialize(&[_]u8{0x7f}))._inner,
+            (try UnsignedVarInt.deserialize(&[_]u8{0x7f}, .little))._inner,
         );
         try std.testing.expectEqual(
             @as(u63, 128),
-            (try UnsignedVarInt.deserialize(&[_]u8{ 0x80, 0x01 }))._inner,
+            (try UnsignedVarInt.deserialize(&[_]u8{ 0x80, 0x01 }, .little))._inner,
         );
         try std.testing.expectEqual(
             @as(u63, 255),
-            (try UnsignedVarInt.deserialize(&[_]u8{ 0xff, 0x01 }))._inner,
+            (try UnsignedVarInt.deserialize(&[_]u8{ 0xff, 0x01 }, .little))._inner,
         );
         try std.testing.expectEqual(
             @as(u63, 300),
-            (try UnsignedVarInt.deserialize(&[_]u8{ 0xac, 0x02 }))._inner,
+            (try UnsignedVarInt.deserialize(&[_]u8{ 0xac, 0x02 }, .little))._inner,
         );
         try std.testing.expectEqual(
             @as(u63, 16384),
-            (try UnsignedVarInt.deserialize(&[_]u8{ 0x80, 0x80, 0x01 }))._inner,
+            (try UnsignedVarInt.deserialize(&[_]u8{ 0x80, 0x80, 0x01 }, .little))._inner,
         );
     }
 
