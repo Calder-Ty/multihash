@@ -10,15 +10,19 @@ pub const Multihash = struct {
 
     /// Serialize the struct to the hash's binary form.
     pub fn serialize(self: Multihash, allocator: std.mem.Allocator) !std.ArrayList(u8) {
-        const total_size = self.hash_func.minimal_size() + self.digest_size.minimal_size() + self.digest.len();
-        var result = try std.ArrayListAligned(u8).initCapacity(allocator, total_size);
-        const func_bytes = self.hash_func.serialize()[0..self.hash_func.minimal_size()];
-        const size_bytes = self.digest_size.serialize()[0..self.digest_size.minimal_size()];
-        while (func_bytes) |byte| {
-            result.append(byte);
+        const total_size = self.hash_func.minimal_size() + self.digest_size.minimal_size() + self.digest.items.len;
+        var result = try std.ArrayList(u8).initCapacity(allocator, total_size);
+        const func_bytes = self.hash_func.serialize(.little)[0..self.hash_func.minimal_size()];
+        const size_bytes = self.digest_size.serialize(.little)[0..self.digest_size.minimal_size()];
+        for (func_bytes) |byte| {
+            if (byte) |b| {
+                try result.append(b);
+            }
         }
-        while (size_bytes) |byte| {
-            result.append(byte);
+        for (size_bytes) |byte| {
+            if (byte) |b| {
+                try result.append(b);
+            }
         }
         try result.appendSlice(self.digest.items);
         return result;
@@ -42,7 +46,7 @@ pub const Multihash = struct {
         self.digest.deinit();
     }
 
-    test "enocde" {
+    test "deserialize" {
         const input = [_]u8{ 0x12, 0x20, 0x41, 0xdd, 0x7b, 0x64, 0x43, 0x54, 0x2e, 0x75, 0x70, 0x1a, 0xa9, 0x8a, 0x0c, 0x23, 0x59, 0x51, 0xa2, 0x8a, 0x0d, 0x85, 0x1b, 0x11, 0x56, 0x4d, 0x20, 0x02, 0x2a, 0xb1, 0x1d, 0x25, 0x89, 0xa8 };
         var hash = std.ArrayList(u8).init(std.testing.allocator);
 
@@ -56,6 +60,21 @@ pub const Multihash = struct {
         const result = try Multihash.deserialize(&input, testing.allocator);
         defer result.deinit();
         try std.testing.expectEqualDeep(m, result);
+    }
+
+    test "serialize" {
+        const expected = [_]u8{ 0x12, 0x20, 0x41, 0xdd, 0x7b, 0x64, 0x43, 0x54, 0x2e, 0x75, 0x70, 0x1a, 0xa9, 0x8a, 0x0c, 0x23, 0x59, 0x51, 0xa2, 0x8a, 0x0d, 0x85, 0x1b, 0x11, 0x56, 0x4d, 0x20, 0x02, 0x2a, 0xb1, 0x1d, 0x25, 0x89, 0xa8 };
+        var hash = std.ArrayList(u8).init(std.testing.allocator);
+        try hash.appendSlice("\x41\xdd\x7b\x64\x43\x54\x2e\x75\x70\x1a\xa9\x8a\x0c\x23\x59\x51\xa2\x8a\x0d\x85\x1b\x11\x56\x4d\x20\x02\x2a\xb1\x1d\x25\x89\xa8");
+        const m: Multihash = .{
+            .hash_func = UnsignedVarInt{ ._inner = 0x12 },
+            .digest_size = UnsignedVarInt{ ._inner = 0x20 },
+            .digest = hash,
+        };
+        defer m.deinit();
+        const result = try Multihash.serialize(m, testing.allocator);
+        defer result.deinit();
+        try std.testing.expectEqualSlices(u8, &expected, result.items);
     }
 };
 
