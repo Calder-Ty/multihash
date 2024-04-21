@@ -88,7 +88,10 @@ pub const Multihash = struct {
     }
 };
 
-/// Variable Sized Integer. Required for use in the Multihash spec.
+/// Variable Sized Integer. Variable sized integers are a format for encoding
+/// an integer of upto 63 bits in size in 9 bytes. This means that numbers are
+/// serialized to at most n-bytes + 1 their natural size.
+///
 /// Based off of the schema here https://github.com/multiformats/unsigned-varint
 pub const UnsignedVarInt = struct {
     const CONT_BIT_MASK: u8 = 0b0111_1111;
@@ -157,6 +160,7 @@ pub const UnsignedVarInt = struct {
         return 9;
     }
 
+    /// Sesrialize the integer to it's binary format
     pub fn serialize(self: UnsignedVarInt, endian: Endian) [9]?u8 {
         return switch (endian) {
             .little => self.serializeLe(),
