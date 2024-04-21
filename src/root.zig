@@ -7,7 +7,7 @@ pub const Multihash = struct {
     digest_size: UnsignedVarInt,
     digest: std.ArrayList(u8),
 
-    /// Decodes the struct to the hash
+    /// Serialize the struct to the hash's binary form.
     pub fn serialize(self: Multihash, allocator: std.mem.Allocator) !std.ArrayList(u8) {
         const total_size = self.hash_func.minimal_size() + self.digest_size.minimal_size() + self.digest.len();
         var result = try std.ArrayListAligned(u8).initCapacity(allocator, total_size);
@@ -23,6 +23,8 @@ pub const Multihash = struct {
         return result;
     }
 
+    /// Deserialize a binary hash into the struct. It is the responsibility of the caller
+    /// to call `deinit`.
     pub fn deserialize(bytes: []const u8, allocator: std.mem.Allocator) !Multihash {
         var offset: usize = 0;
         const hash_func = try UnsignedVarInt.deserialize(bytes[offset .. offset + 9]);
