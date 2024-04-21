@@ -30,7 +30,7 @@ pub const Multihash = struct {
         const hash_size = try UnsignedVarInt.encode(bytes[offset .. offset + 9]);
         offset += hash_size.minimal_size();
         var hash = std.ArrayList(u8).init(allocator);
-        try hash.appendSlice(bytes[offset .. offset + hash_size._inner - 1]);
+        try hash.appendSlice(bytes[offset .. offset + hash_size._inner]);
 
         return .{ .hash_func = hash_func, .digest_size = hash_size, .digest = hash };
     }
@@ -50,8 +50,9 @@ pub const Multihash = struct {
             .digest = hash,
         };
         defer m.deinit();
-
-        try std.testing.expectEqualDeep(m, try Multihash.encode(&input, testing.allocator));
+        const result = try Multihash.encode(&input, testing.allocator);
+        defer result.deinit();
+        try std.testing.expectEqualDeep(m, result);
     }
 };
 
