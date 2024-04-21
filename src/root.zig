@@ -74,7 +74,13 @@ pub const UnsignedVarInt = struct {
 
     /// Deserialize bytes into a UnsinedVarInt
     pub fn deserialize(bytes: []const u8, endian: Endian) !UnsignedVarInt {
-        _ = endian;
+        switch (endian) {
+            .little => return UnsignedVarInt.deserializeLe(bytes),
+            .big => return UnsignedVarInt.deserializeBe(bytes),
+        }
+    }
+
+    fn deserializeLe(bytes: []const u8) !UnsignedVarInt {
         if (bytes.len > 9) {
             return error.TooManyBytes;
         }
@@ -86,6 +92,26 @@ pub const UnsignedVarInt = struct {
             if (byte & ~CONT_BIT_MASK == 0) {
                 break;
             }
+        }
+        // SAFTEY: We can truncate the result to 63 bits because we only shifted
+        // at a max 9 * 7 = 63 bits.
+        return .{ ._inner = @truncate(result) };
+    }
+
+    fn deserializeBe(bytes: []const u8) !UnsignedVarInt {
+        if (bytes.len > 9) {
+            return error.TooManyBytes;
+        }
+        var result: u64 = 0;
+        for (bytes) |byte| {
+            const masked: u64 = CONT_BIT_MASK & byte;
+            result |= masked;
+            // Check if Continuation Bit is set
+            if (byte & ~CONT_BIT_MASK == 0) {
+                break;
+            }
+            // Shift the value over for the next byte
+            result <<= BASE_SHIFT_VALUE;
         }
         // SAFTEY: We can truncate the result to 63 bits because we only shifted
         // at a max 9 * 7 = 63 bits.
@@ -117,7 +143,7 @@ pub const UnsignedVarInt = struct {
         return buffer;
     }
 
-    test "encode" {
+    test "deserialize LittleEndian" {
         try std.testing.expectEqual(
             @as(u63, 1),
             (try UnsignedVarInt.deserialize(&[_]u8{0x1}, .little))._inner,
@@ -141,6 +167,33 @@ pub const UnsignedVarInt = struct {
         try std.testing.expectEqual(
             @as(u63, 16384),
             (try UnsignedVarInt.deserialize(&[_]u8{ 0x80, 0x80, 0x01 }, .little))._inner,
+        );
+    }
+
+    test "deserialize BigEndian" {
+        try std.testing.expectEqual(
+            @as(u63, 1),
+            (try UnsignedVarInt.deserialize(&[_]u8{0x1}, .big))._inner,
+        );
+        try std.testing.expectEqual(
+            @as(u63, 127),
+            (try UnsignedVarInt.deserialize(&[_]u8{0x7f}, .big))._inner,
+        );
+        try std.testing.expectEqual(
+            @as(u63, 128),
+            (try UnsignedVarInt.deserialize(&[_]u8{ 0x81, 0x00 }, .big))._inner,
+        );
+        try std.testing.expectEqual(
+            @as(u63, 255),
+            (try UnsignedVarInt.deserialize(&[_]u8{ 0x81, 0x7f }, .big))._inner,
+        );
+        try std.testing.expectEqual(
+            @as(u63, 300),
+            (try UnsignedVarInt.deserialize(&[_]u8{ 0x82, 0x2c }, .big))._inner,
+        );
+        try std.testing.expectEqual(
+            @as(u63, 16384),
+            (try UnsignedVarInt.deserialize(&[_]u8{ 0x81, 0x80, 0x00 }, .big))._inner,
         );
     }
 
