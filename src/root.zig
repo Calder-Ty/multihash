@@ -8,11 +8,11 @@ pub const Multihash = struct {
     digest: std.ArrayList(u8),
 
     /// Decodes the struct to the hash
-    pub fn decode(self: Multihash, allocator: std.mem.Allocator) !std.ArrayList(u8) {
+    pub fn serialize(self: Multihash, allocator: std.mem.Allocator) !std.ArrayList(u8) {
         const total_size = self.hash_func.minimal_size() + self.digest_size.minimal_size() + self.digest.len();
         var result = try std.ArrayListAligned(u8).initCapacity(allocator, total_size);
-        const func_bytes = self.hash_func.decode()[0..self.hash_func.minimal_size()];
-        const size_bytes = self.digest_size.decode()[0..self.digest_size.minimal_size()];
+        const func_bytes = self.hash_func.serialize()[0..self.hash_func.minimal_size()];
+        const size_bytes = self.digest_size.serialize()[0..self.digest_size.minimal_size()];
         while (func_bytes) |byte| {
             result.append(byte);
         }
@@ -98,7 +98,7 @@ const UnsignedVarInt = struct {
         return 9;
     }
 
-    fn decode(self: UnsignedVarInt) [9]?u8 {
+    pub fn serialize(self: UnsignedVarInt) [9]?u8 {
         var buffer = [_]?u8{null} ** 9;
         const max_len = self.minimal_size();
         for (0..9) |i| {
@@ -151,7 +151,7 @@ const UnsignedVarInt = struct {
         try std.testing.expectEqualSlices(
             ?u8,
             &[_]?u8{0x1},
-            int.decode()[0..int.minimal_size()],
+            int.serialize()[0..int.minimal_size()],
         );
         const int2 = UnsignedVarInt{ ._inner = 16384 };
         try std.testing.expectEqualSlices(
@@ -161,7 +161,7 @@ const UnsignedVarInt = struct {
                 0x80,
                 0x01,
             },
-            int2.decode()[0..int2.minimal_size()],
+            int2.serialize()[0..int2.minimal_size()],
         );
     }
 };
