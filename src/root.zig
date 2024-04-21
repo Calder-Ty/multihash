@@ -23,11 +23,11 @@ pub const Multihash = struct {
         return result;
     }
 
-    pub fn encode(bytes: []const u8, allocator: std.mem.Allocator) !Multihash {
+    pub fn deserialize(bytes: []const u8, allocator: std.mem.Allocator) !Multihash {
         var offset: usize = 0;
-        const hash_func = try UnsignedVarInt.encode(bytes[offset .. offset + 9]);
+        const hash_func = try UnsignedVarInt.deserialize(bytes[offset .. offset + 9]);
         offset = hash_func.minimal_size();
-        const hash_size = try UnsignedVarInt.encode(bytes[offset .. offset + 9]);
+        const hash_size = try UnsignedVarInt.deserialize(bytes[offset .. offset + 9]);
         offset += hash_size.minimal_size();
         var hash = std.ArrayList(u8).init(allocator);
         try hash.appendSlice(bytes[offset .. offset + hash_size._inner]);
@@ -50,7 +50,7 @@ pub const Multihash = struct {
             .digest = hash,
         };
         defer m.deinit();
-        const result = try Multihash.encode(&input, testing.allocator);
+        const result = try Multihash.deserialize(&input, testing.allocator);
         defer result.deinit();
         try std.testing.expectEqualDeep(m, result);
     }
@@ -70,7 +70,7 @@ const UnsignedVarInt = struct {
     _inner: u63,
 
     /// Encode Bytes into a UnsinedVarInt
-    pub fn encode(bytes: []const u8) !UnsignedVarInt {
+    pub fn deserialize(bytes: []const u8) !UnsignedVarInt {
         if (bytes.len > 9) {
             return error.TooManyBytes;
         }
@@ -116,27 +116,27 @@ const UnsignedVarInt = struct {
     test "encode" {
         try std.testing.expectEqual(
             @as(u63, 1),
-            (try UnsignedVarInt.encode(&[_]u8{0x1}))._inner,
+            (try UnsignedVarInt.deserialize(&[_]u8{0x1}))._inner,
         );
         try std.testing.expectEqual(
             @as(u63, 127),
-            (try UnsignedVarInt.encode(&[_]u8{0x7f}))._inner,
+            (try UnsignedVarInt.deserialize(&[_]u8{0x7f}))._inner,
         );
         try std.testing.expectEqual(
             @as(u63, 128),
-            (try UnsignedVarInt.encode(&[_]u8{ 0x80, 0x01 }))._inner,
+            (try UnsignedVarInt.deserialize(&[_]u8{ 0x80, 0x01 }))._inner,
         );
         try std.testing.expectEqual(
             @as(u63, 255),
-            (try UnsignedVarInt.encode(&[_]u8{ 0xff, 0x01 }))._inner,
+            (try UnsignedVarInt.deserialize(&[_]u8{ 0xff, 0x01 }))._inner,
         );
         try std.testing.expectEqual(
             @as(u63, 300),
-            (try UnsignedVarInt.encode(&[_]u8{ 0xac, 0x02 }))._inner,
+            (try UnsignedVarInt.deserialize(&[_]u8{ 0xac, 0x02 }))._inner,
         );
         try std.testing.expectEqual(
             @as(u63, 16384),
-            (try UnsignedVarInt.encode(&[_]u8{ 0x80, 0x80, 0x01 }))._inner,
+            (try UnsignedVarInt.deserialize(&[_]u8{ 0x80, 0x80, 0x01 }))._inner,
         );
     }
 
