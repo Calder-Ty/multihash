@@ -128,7 +128,14 @@ pub const UnsignedVarInt = struct {
         return 9;
     }
 
-    pub fn serialize(self: UnsignedVarInt) [9]?u8 {
+    pub fn serialize(self: UnsignedVarInt, endian: Endian) [9]?u8 {
+        return switch (endian) {
+            .little => self.serializeLe(),
+            .big => self.serializeBe(),
+        };
+    }
+
+    fn serializeLe(self: UnsignedVarInt) [9]?u8 {
         var buffer = [_]?u8{null} ** 9;
         const max_len = self.minimal_size();
         for (0..9) |i| {
@@ -143,7 +150,22 @@ pub const UnsignedVarInt = struct {
         return buffer;
     }
 
-    test "deserialize LittleEndian" {
+    fn serializeBe(self: UnsignedVarInt) [9]?u8 {
+        var buffer = [_]?u8{null} ** 9;
+        const max_len = self.minimal_size();
+        for (0..max_len) |i| {
+            // SAFTEY: We can truncate here as `i` will never be greater than 9
+            const byte: u8 = @truncate(self._inner >> @as(u6, @truncate(i)) * 7);
+            if (i == 0) {
+                buffer[max_len - 1] = byte;
+            } else {
+                buffer[max_len - i - 1] = byte | 0b1000_0000;
+            }
+        }
+        return buffer;
+    }
+
+    test "Deserialize LittleEndian" {
         try std.testing.expectEqual(
             @as(u63, 1),
             (try UnsignedVarInt.deserialize(&[_]u8{0x1}, .little))._inner,
@@ -170,7 +192,7 @@ pub const UnsignedVarInt = struct {
         );
     }
 
-    test "deserialize BigEndian" {
+    test "Deserialize BigEndian" {
         try std.testing.expectEqual(
             @as(u63, 1),
             (try UnsignedVarInt.deserialize(&[_]u8{0x1}, .big))._inner,
@@ -203,12 +225,12 @@ pub const UnsignedVarInt = struct {
         try std.testing.expectEqual(9, (UnsignedVarInt{ ._inner = 1 << 62 }).minimal_size());
     }
 
-    test "decode" {
+    test "Serialize LittleEndian" {
         const int = UnsignedVarInt{ ._inner = 0x1 };
         try std.testing.expectEqualSlices(
             ?u8,
             &[_]?u8{0x1},
-            int.serialize()[0..int.minimal_size()],
+            int.serialize(.little)[0..int.minimal_size()],
         );
         const int2 = UnsignedVarInt{ ._inner = 16384 };
         try std.testing.expectEqualSlices(
@@ -218,7 +240,24 @@ pub const UnsignedVarInt = struct {
                 0x80,
                 0x01,
             },
-            int2.serialize()[0..int2.minimal_size()],
+            int2.serialize(.little)[0..int2.minimal_size()],
+        );
+    }
+
+    test "Serialize BigEndian" {
+        const int = UnsignedVarInt{ ._inner = 0x1 };
+        const res = int.serialize(.big);
+        try std.testing.expectEqualSlices(?u8, &[_]?u8{0x01}, res[0..int.minimal_size()]);
+        const int2 = UnsignedVarInt{ ._inner = 16384 };
+        const res2 = int2.serialize(.big);
+        try std.testing.expectEqualSlices(
+            ?u8,
+            &[_]?u8{
+                0x81,
+                0x80,
+                0x00,
+            },
+            res2[0..int2.minimal_size()],
         );
     }
 };
