@@ -1,6 +1,8 @@
 const std = @import("std");
+const hash_table = @import("table.zig");
 const testing = std.testing;
 const Endian = std.builtin.Endian;
+pub const HashFunction = hash_table.HashFunction;
 
 /// A representation of the Hash
 pub const Multihash = struct {
@@ -8,7 +10,20 @@ pub const Multihash = struct {
     digest_size: UnsignedVarInt,
     digest: std.ArrayList(u8),
 
-    /// Serialize the struct to the hash's binary form.
+    /// Create a Multihash from the hash digest and a hash function
+    pub fn from_digest(func: HashFunction, digest: []const u8, allocator: std.mem.Allocator) !Multihash {
+        const digest_size = UnsignedVarInt{ ._inner = @truncate(digest.len) };
+        const hash_func = UnsignedVarInt{ ._inner = @intFromEnum(func) };
+        var d = try std.ArrayList(u8).initCapacity(allocator, digest_size._inner);
+        d.appendSliceAssumeCapacity(digest);
+        return Multihash{
+            .hash_func = hash_func,
+            .digest_size = digest_size,
+            .digest = d,
+        };
+    }
+
+    /// Serialize the struct to the multihash's binary form.
     pub fn serialize(self: Multihash, allocator: std.mem.Allocator) !std.ArrayList(u8) {
         const total_size = self.hash_func.minimal_size() + self.digest_size.minimal_size() + self.digest.items.len;
         var result = try std.ArrayList(u8).initCapacity(allocator, total_size);
@@ -28,7 +43,7 @@ pub const Multihash = struct {
         return result;
     }
 
-    /// Deserialize a binary hash into the struct. It is the responsibility of the caller
+    /// Deserialize a binary multihash into the struct. It is the responsibility of the caller
     /// to call `deinit`.
     pub fn deserialize(bytes: []const u8, allocator: std.mem.Allocator) !Multihash {
         var offset: usize = 0;
@@ -44,6 +59,22 @@ pub const Multihash = struct {
 
     pub fn deinit(self: Multihash) void {
         self.digest.deinit();
+    }
+
+    test "from_digest" {
+        const digest = "\x8a\x17\x3f\xd3\xe3\x2c\x0f\xa7\x8b\x90\xfe\x42\xd3\x05\xf2\x02\x24\x4e\x27\x39";
+
+        var d = std.ArrayList(u8).init(testing.allocator);
+        try d.appendSlice(digest);
+        const hash_func = UnsignedVarInt{ ._inner = @intFromEnum(HashFunction.sha1) };
+
+        const expected = Multihash{ .hash_func = hash_func, .digest_size = UnsignedVarInt{ ._inner = 20 }, .digest = d };
+        defer expected.deinit();
+
+        const result = try Multihash.from_digest(HashFunction.sha1, digest, testing.allocator);
+        defer result.deinit();
+
+        try std.testing.expectEqualDeep(expected, result);
     }
 
     test "deserialize" {
