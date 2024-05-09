@@ -20,22 +20,6 @@ const multihash_function = multihash.HashFunction.sha2_256;
 const multihash_len = 1 + 1 + Hash.digest_length;
 const hex_charset = "0123456789abcdef";
 
-pub fn hexDigest(digest: [Hash.digest_length]u8) [multihash_len * 2]u8 {
-    var result: [multihash_len * 2]u8 = undefined;
-
-    result[0] = hex_charset[@intFromEnum(multihash_function) >> 4];
-    result[1] = hex_charset[@intFromEnum(multihash_function) & 15];
-
-    result[2] = hex_charset[Hash.digest_length >> 4];
-    result[3] = hex_charset[Hash.digest_length & 15];
-
-    for (digest, 0..) |byte, i| {
-        result[4 + i * 2] = hex_charset[byte >> 4];
-        result[5 + i * 2] = hex_charset[byte & 15];
-    }
-    return result;
-}
-
 var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
 
 /// 1MB git output
@@ -68,6 +52,10 @@ pub fn main() !void {
             try cmdPkgGit(gpa, args);
             return;
         }
+        if (mem.eql(u8, arg1, "-f") or mem.eql(u8, arg1, "--file")) {
+            try cmdFiles(gpa, args[1..]);
+            return;
+        }
     }
 
     try cmdPkg(gpa, arena, args);
@@ -84,6 +72,7 @@ pub const usage_pkg =
     \\Options: 
     \\  -h --help           Print this help and exit.
     \\  -g --git            Use git ls-files
+    \\  -f --file <file list>           List Files to include in hash. Directories are included recursively. Does not work with `-g`
     \\
     \\Sub-options: 
     \\  --allow-directory : calc hash even if no build.zig is present
@@ -265,6 +254,42 @@ fn renderTemplate(gpa: std.mem.Allocator, tag: []const u8, template: []const u8,
     defer gpa.free(s2);
 
     try std.io.getStdOut().writer().writeAll(s2);
+}
+
+fn cmdFiles(gpa: std.mem.Allocator, args: []const []const u8) !void {
+    // Get files to hash
+    if (args.len <= 1) {
+        std.debug.print("Error: --file requires pathnames\n", .{});
+        try showHelp();
+        return;
+    }
+
+    const cwd = std.fs.cwd();
+    const hash = blk: {
+        const cwd_absolute_path = try cwd.realpathAlloc(gpa, ".");
+        defer gpa.free(cwd_absolute_path);
+
+        // computePackageHash will close the directory after completion
+        // std.debug.print("abspath: {s}\n", .{cwd_absolute_path});
+        var cwd_copy = try fs.openDirAbsolute(cwd_absolute_path, .{ .iterate = true });
+        errdefer cwd_copy.close();
+
+        var thread_pool: ThreadPool = undefined;
+        try thread_pool.init(.{ .allocator = gpa });
+        defer thread_pool.deinit();
+
+        // workaround for missing inclusion/exclusion support -> #14311.
+        break :blk try computePackageHashForFileArray(
+            &thread_pool,
+            cwd_copy,
+            args[1..],
+        );
+    };
+
+    const std_out = std.io.getStdOut();
+    const digest = hexDigest(hash);
+    try std_out.writeAll(digest[0..]);
+    try std_out.writeAll("\n");
 }
 
 pub fn cmdPkg(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
@@ -452,6 +477,61 @@ pub fn computePackageHashExcludingDirectories(
     return hasher.finalResult();
 }
 
+pub fn computePackageHashForFileArray(
+    thread_pool: *ThreadPool,
+    pkg_dir: fs.Dir,
+    file_list: []const []const u8,
+) ![Hash.digest_length]u8 {
+    const gpa = thread_pool.allocator;
+
+    // We'll use an arena allocator for the path name strings since they all
+    // need to be in memory for sorting.
+    var arena_instance = std.heap.ArenaAllocator.init(gpa);
+    defer arena_instance.deinit();
+    const arena = arena_instance.allocator();
+
+    // Collect all files, recursively, then sort.
+    var all_files = std.ArrayList(*HashedFile).init(gpa);
+    defer all_files.deinit();
+    {
+        // The final hash will be a hash of each file hashed independently. This
+        // allows hashing in parallel.
+        var wait_group: WaitGroup = .{};
+        defer wait_group.wait();
+
+        for (file_list) |entry| {
+            if (entry.len > 0) {
+                const hashed_file = try arena.create(HashedFile);
+                const fs_path = try arena.dupe(u8, entry);
+                hashed_file.* = .{
+                    .fs_path = fs_path,
+                    .normalized_path = try normalizePath(arena, fs_path),
+                    .hash = undefined, // to be populated by the worker
+                    .failure = undefined, // to be populated by the worker
+                };
+                wait_group.start();
+                try thread_pool.spawn(workerHashFile, .{ pkg_dir, hashed_file, &wait_group });
+
+                try all_files.append(hashed_file);
+            }
+        }
+    }
+
+    std.mem.sort(*HashedFile, all_files.items, {}, HashedFile.lessThan);
+
+    var hasher = Hash.init(.{});
+    var any_failures = false;
+    for (all_files.items) |hashed_file| {
+        hashed_file.failure catch |err| {
+            any_failures = true;
+            std.log.err("unable to hash '{s}': {s}", .{ hashed_file.fs_path, @errorName(err) });
+        };
+        // std.debug.print("{s} : {s}\n", .{ hashed_file.normalized_path, hexDigest(hashed_file.hash) });
+        hasher.update(&hashed_file.hash);
+    }
+    if (any_failures) return error.PackageHashUnavailable;
+    return hasher.finalResult();
+}
 pub fn computePackageHashForFileList(
     thread_pool: *ThreadPool,
     pkg_dir: fs.Dir,
@@ -508,4 +588,20 @@ pub fn computePackageHashForFileList(
     }
     if (any_failures) return error.PackageHashUnavailable;
     return hasher.finalResult();
+}
+
+pub fn hexDigest(digest: [Hash.digest_length]u8) [multihash_len * 2]u8 {
+    var result: [multihash_len * 2]u8 = undefined;
+
+    result[0] = hex_charset[@intFromEnum(multihash_function) >> 4];
+    result[1] = hex_charset[@intFromEnum(multihash_function) & 15];
+
+    result[2] = hex_charset[Hash.digest_length >> 4];
+    result[3] = hex_charset[Hash.digest_length & 15];
+
+    for (digest, 0..) |byte, i| {
+        result[4 + i * 2] = hex_charset[byte >> 4];
+        result[5 + i * 2] = hex_charset[byte & 15];
+    }
+    return result;
 }
