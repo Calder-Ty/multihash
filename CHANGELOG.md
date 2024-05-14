@@ -23,5 +23,5 @@ Initial release
 - *pkghash*: Generate zig package hashes
 
 
-[unreleased]: https://github.com/olivierlacan/keep-a-changelog/compare/0.1.0...HEAD
-[0.1.0]: https://github.com/olivierlacan/keep-a-changelog/releases/tag/0.1.0
+[unreleased]: https://github.com/Calder-Ty/multihash/compare/0.1.0...HEAD
+[0.1.0]: https://github.com/Calder-Ty/multihash/releases/tag/0.1.0
