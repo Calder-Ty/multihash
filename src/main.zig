@@ -70,18 +70,18 @@ pub const usage_pkg =
     \\Usage: pkghash [options]
     \\
     \\Options: 
-    \\  -h --help           Print this help and exit.
-    \\  -g --git            Use git ls-files
-    \\  -f --file <file list>           List Files to include in hash. Directories are included recursively. Does not work with `-g`
+    \\  -h --help               Print this help and exit.
+    \\  -g --git                Use git ls-files
+    \\  -f --file <file list>   List Files to include in hash. Directories are included recursively. Does not work with `-g`
     \\
     \\Sub-options: 
-    \\  --allow-directory : calc hash even if no build.zig is present
-    \\                      applies in no-git mode only
+    \\  --allow-directory :     calc hash even if no build.zig is present
+    \\                          applies in no-git mode only
     \\
     \\Sub-options for --git: 
-    \\  --tag=<tag>          : specify git tag to use in template
-    \\                         defaults to tag pointing to HEAD
-    \\  --template=<file.md> : specify markdown template to render
+    \\  --tag=<tag>          :  specify git tag to use in template
+    \\                          defaults to tag pointing to HEAD
+    \\  --template=<file.md> :  specify markdown template to render
 ;
 
 pub fn gitLatestTag(gpa: Allocator, pkg_dir: []const u8) ![]const u8 {
@@ -343,12 +343,17 @@ pub fn cmdPkg(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
 }
 
 /// Make a file system path identical independently of operating system path inconsistencies.
-/// This converts backslashes into forward slashes.
+/// This converts backslashes into forward slashes, and removes leading `./`
 fn normalizePath(arena: Allocator, fs_path: []const u8) ![]const u8 {
     const canonical_sep = '/';
 
-    if (fs.path.sep == canonical_sep)
+    const leading_dot_slash = std.mem.eql(u8, fs_path[0..2], "./");
+
+    if (fs.path.sep == canonical_sep and leading_dot_slash) {
+        return fs_path[2..];
+    } else if (fs.path.sep == canonical_sep) {
         return fs_path;
+    }
 
     const normalized = try arena.dupe(u8, fs_path);
     for (normalized) |*byte| {
